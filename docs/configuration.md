@@ -12,7 +12,7 @@ Ragpi uses the following environment variables to configure its behavior. These 
 | ------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PROJECT_NAME`            | Name of the project                   | `the current project`                                                                                                               | Used to scope and focus the AI assistant's responses                                                                                                                      |
 | `PROJECT_DESCRIPTION`     | Description of the project            | `determined by the available sources`                                                                                               | Defines the project's scope for the AI assistant                                                                                                                          |
-| `RAGPI_VERSION`           | API version of Ragpi                  | `v0.2.x`                                                                                                                            | Used in the OpenAPI spec and in `docker-compose.prod.yml` to specify the Ragpi image version                                                                              |
+| `RAGPI_VERSION`           | API version of Ragpi                  | `v0.5.x`                                                                                                                            | Used in the OpenAPI spec and in `docker-compose.prod.yml` to specify the Ragpi image version                                                                              |
 | `API_NAME`                | Name of the API service               | `Ragpi`                                                                                                                             | Used in the OpenAPI spec                                                                                                                                                  |
 | `API_SUMMARY`             | Summary of the API service            | `Ragpi is an AI assistant specialized in retrieving and synthesizing technical information to provide relevant answers to queries.` | Used in the OpenAPI spec                                                                                                                                                  |
 | `RAGPI_API_KEY`           | API key for authenticated requests    | None                                                                                                                                | If not set, the API will be accessible without authentication. When set, this key must be a self-generated secret and included in the `x-api-key` header of each request. |
@@ -58,11 +58,80 @@ Ragpi uses the following environment variables to configure its behavior. These 
 
 ## Model Settings
 
-| Variable               | Description                         | Default                  | Notes                                                          |
-| ---------------------- | ----------------------------------- | ------------------------ | -------------------------------------------------------------- |
-| `DEFAULT_CHAT_MODEL`   | Default model for chat interactions | `gpt-4o`                 | Only models that support tool/function callings are supported. |
-| `EMBEDDING_MODEL`      | Model used for embeddings           | `text-embedding-3-small` | -                                                              |
-| `EMBEDDING_DIMENSIONS` | Dimensions for embedding vectors    | `1536`                   | Must match dimensions of selected embedding model              |
+| Variable                         | Description                                                          | Default                  | Notes                                                                                                                                                                                                     |
+| -------------------------------- | -------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DEFAULT_CHAT_MODEL`             | Default model for chat interactions                                  | `gpt-4o`                 | Only models that support tool/function callings are supported.                                                                                                                                             |
+| `CHAT_USE_RESPONSES_API`         | Use the OpenAI Responses API for chat                                | `False`                  | Requires `CHAT_PROVIDER=openai`. Needed for OpenAI reasoning models (e.g. `gpt-5.6-sol`, `gpt-5.6-terra`) to combine active reasoning with tool calling. See [Reasoning Models](#reasoning-models-openai-responses-api). |
+| `REASONING_EFFORT`               | Default reasoning effort for reasoning models                        | None                     | Options: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. Only sent when set and only on the Responses API path; can be overridden per request via `reasoning_effort`. Not every model supports every value (GPT-5.6 does not support `minimal`). |
+| `OPENAI_RESPONSES_STORE`         | Store Responses API state with OpenAI                                | `True`                   | Responses API path only. `False` (Zero Data Retention) is not yet supported. See the privacy note under [Reasoning Models](#reasoning-models-openai-responses-api).                                        |
+| `EMBEDDING_MODEL`                | Model used for embeddings                                            | `text-embedding-3-small` | -                                                                                                                                                                                                           |
+| `EMBEDDING_DIMENSIONS`           | Dimensions for embedding vectors                                     | `1536`                   | Must match dimensions of selected embedding model. Dimensions above 2000 (e.g. `text-embedding-3-large` at 3072) are supported — see [Large Embedding Models](#large-embedding-models). Changing this on an existing deployment requires re-embedding. |
+| `EMBEDDING_CANDIDATE_MULTIPLIER` | Candidate over-fetch factor for the >2000-dimension retrieval path   | `10`                     | Candidates fetched per search = `RETRIEVAL_TOP_K` × this value, then reranked by exact full-precision cosine. Postgres backend only; no effect at ≤2000 dimensions.                                        |
+| `HNSW_EF_SEARCH`                 | Lower bound for pgvector's `hnsw.ef_search` during candidate fetch   | None                     | `1`–`1000`. Only affects >2000-dimension searches that PostgreSQL serves via the HNSW index; when unset, derived from the candidate count.                                                                  |
+| `EMBEDDING_SPACE_ID`             | Explicit embedding-space identity recorded in the store manifest     | None                     | Only needed for `ollama`/`openai_compatible` embedding providers where a model alias can change meaning without the endpoint URL changing. When unset, derived from the provider/endpoint.                  |
+| `EMBEDDING_ADOPT_EXISTING`       | Allow adopting a pre-existing store that has no manifest             | `False`                  | Only needed when upgrading an existing deployment that uses a **non-default** embedding configuration. Set once for the first startup after upgrading, then remove.                                        |
+| `PG_UPDATE_VECTOR_EXTENSION`     | Run `ALTER EXTENSION vector UPDATE` at startup                       | `False`                  | Only needed when an existing PostgreSQL database has a pgvector extension older than required. **Upgrades the extension for the entire database** — back up and check other pgvector-dependent applications first. |
+
+### Reasoning Models (OpenAI Responses API)
+
+OpenAI reasoning models (such as `gpt-5.6-sol` and `gpt-5.6-terra`) cannot combine
+active reasoning with tool calling on the Chat Completions API. To use them with
+Ragpi's retrieval tools, enable the Responses API path:
+
+```env
+CHAT_PROVIDER=openai
+DEFAULT_CHAT_MODEL=gpt-5.6-sol
+CHAT_USE_RESPONSES_API=true
+REASONING_EFFORT=medium
+```
+
+When `CHAT_USE_RESPONSES_API` is off (the default), all providers use the Chat
+Completions API exactly as before. Reasoning continuity is preserved across the
+tool-call loop within a single chat request. `reasoning_effort` may also be set per
+request in the `/chat` payload.
+
+:::info Privacy
+The Responses API path sends `store=true`, meaning conversation state is retained in
+OpenAI's stored-responses workflow (30 days by default) to support reasoning
+continuity across tool calls. Zero Data Retention (`OPENAI_RESPONSES_STORE=false`) is
+not yet supported.
+:::
+
+### Large Embedding Models
+
+`text-embedding-3-large` is supported at its full 3072 dimensions:
+
+```env
+EMBEDDING_MODEL=text-embedding-3-large
+EMBEDDING_DIMENSIONS=3072
+```
+
+On the PostgreSQL backend, embeddings are always stored as full-precision float32.
+Above 2000 dimensions (pgvector's index limit for the `vector` type) Ragpi builds a
+half-precision (`halfvec`) HNSW index and reranks candidates by exact full-precision
+cosine. This requires the **pgvector server extension ≥ 0.8.2** (the
+`pgvector/pgvector:pg17` image satisfies it; for an older extension in an existing
+database, see `PG_UPDATE_VECTOR_EXTENSION`). The Redis backend supports 3072
+dimensions without additional configuration.
+
+Ragpi records a manifest for each document store (embedding provider, model,
+dimensions, and index configuration) and validates it at startup, failing fast with
+actionable guidance on an incompatible change. Note that **changing the embedding
+model requires re-embedding even when the dimensions stay the same.**
+
+#### Changing the embedding model or dimensions
+
+Changing the embedding identity (provider, model, or dimensions) requires
+re-embedding all documents; there is no automatic data migration:
+
+1. Back up the database / Redis data, then stop the API and workers.
+2. Remove the document vectors **and** the store manifest, keeping source metadata:
+   - **PostgreSQL:** `DROP TABLE <DOCUMENT_STORE_NAMESPACE>;` and delete its row from
+     `ragpi_store_manifest` (leave the `source_metadata` table intact).
+   - **Redis:** drop the index, delete its `<namespace>:sources:*` keys, and delete
+     the `<namespace>:__manifest__` key.
+3. Restart with the new `EMBEDDING_MODEL` / `EMBEDDING_DIMENSIONS` (startup recreates
+   the schema, index, and manifest), then re-sync every source.
 
 ## Document Processing
 
