@@ -63,8 +63,8 @@ Ragpi uses the following environment variables to configure its behavior. These 
 | `DEFAULT_CHAT_MODEL`             | Default model for chat interactions                                  | `gpt-4o`                 | Only models that support tool/function callings are supported.                                                                                                                                             |
 | `CHAT_USE_RESPONSES_API`         | Use the OpenAI Responses API for chat                                | `False`                  | Requires `CHAT_PROVIDER=openai`. Needed for OpenAI reasoning models (e.g. `gpt-5.6-sol`, `gpt-5.6-terra`) to combine active reasoning with tool calling. See [Reasoning Models](#reasoning-models-openai-responses-api). |
 | `REASONING_EFFORT`               | Default reasoning effort for reasoning models                        | None                     | Options: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. Only sent when set and only on the Responses API path; can be overridden per request via `reasoning_effort`. Not every model supports every value (GPT-5.6 does not support `minimal`). |
-| `OPENAI_RESPONSES_STORE`         | Store Responses API state with OpenAI                                | `True`                   | Responses API path only. `False` (Zero Data Retention) is not yet supported. See the privacy note under [Reasoning Models](#reasoning-models-openai-responses-api).                                        |
-| `EMBEDDING_MODEL`                | Model used for embeddings                                            | `text-embedding-3-small` | -                                                                                                                                                                                                           |
+| `OPENAI_RESPONSES_STORE`         | Store Responses API state with OpenAI                                | `True`                   | Responses API path only. Not yet implemented (so `True` is the only supported value). This is a placeholder for future work for when `False` (Zero Data Retention) is supported. See the privacy note under [Reasoning Models](#reasoning-models-openai-responses-api).                                        |
+| `EMBEDDING_MODEL`                | Model used for embeddings                                            | `text-embedding-3-small` |    |
 | `EMBEDDING_DIMENSIONS`           | Dimensions for embedding vectors                                     | `1536`                   | Must match dimensions of selected embedding model. Dimensions above 2000 (e.g. `text-embedding-3-large` at 3072) are supported — see [Large Embedding Models](#large-embedding-models). Changing this on an existing deployment requires re-embedding. |
 | `EMBEDDING_CANDIDATE_MULTIPLIER` | Candidate over-fetch factor for the >2000-dimension retrieval path   | `10`                     | Candidates fetched per search = `RETRIEVAL_TOP_K` × this value, then reranked by exact full-precision cosine. Postgres backend only; no effect at ≤2000 dimensions.                                        |
 | `HNSW_EF_SEARCH`                 | Lower bound for pgvector's `hnsw.ef_search` during candidate fetch   | None                     | `1`–`1000`. Only affects >2000-dimension searches that PostgreSQL serves via the HNSW index; when unset, derived from the candidate count.                                                                  |
@@ -72,7 +72,7 @@ Ragpi uses the following environment variables to configure its behavior. These 
 | `EMBEDDING_ADOPT_EXISTING`       | Allow adopting a pre-existing store that has no manifest             | `False`                  | Only needed when upgrading an existing deployment that uses a **non-default** embedding configuration. Set once for the first startup after upgrading, then remove.                                        |
 | `PG_UPDATE_VECTOR_EXTENSION`     | Run `ALTER EXTENSION vector UPDATE` at startup                       | `False`                  | Only needed when an existing PostgreSQL database has a pgvector extension older than required. **Upgrades the extension for the entire database** — back up and check other pgvector-dependent applications first. |
 
-### Reasoning Models (OpenAI Responses API)
+### Reasoning Models (OpenAI Responses API Only)
 
 OpenAI reasoning models (such as `gpt-5.6-sol` and `gpt-5.6-terra`) cannot combine
 active reasoning with tool calling on the Chat Completions API. To use them with
@@ -82,7 +82,7 @@ Ragpi's retrieval tools, enable the Responses API path:
 CHAT_PROVIDER=openai
 DEFAULT_CHAT_MODEL=gpt-5.6-sol
 CHAT_USE_RESPONSES_API=true
-REASONING_EFFORT=medium
+REASONING_EFFORT=low
 ```
 
 When `CHAT_USE_RESPONSES_API` is off (the default), all providers use the Chat
@@ -119,7 +119,7 @@ dimensions, and index configuration) and validates it at startup, failing fast w
 actionable guidance on an incompatible change. Note that **changing the embedding
 model requires re-embedding even when the dimensions stay the same.**
 
-#### Changing the embedding model or dimensions
+#### Changing the Embedding Model or Dimensions in Existing Ragpi Deployment
 
 Changing the embedding identity (provider, model, or dimensions) requires
 re-embedding all documents; there is no automatic data migration:
