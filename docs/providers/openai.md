@@ -25,7 +25,7 @@ Responses API to combine reasoning with Ragpi's retrieval tools:
 ```env
 DEFAULT_CHAT_MODEL=gpt-5.6-sol
 CHAT_USE_RESPONSES_API=true
-REASONING_EFFORT=medium
+REASONING_EFFORT=low
 ```
 
 See [Reasoning Models](../configuration.md#reasoning-models-openai-responses-api) in
