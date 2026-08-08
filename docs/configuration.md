@@ -63,7 +63,7 @@ Ragpi uses the following environment variables to configure its behavior. These 
 | `DEFAULT_CHAT_MODEL`             | Default model for chat interactions                                  | `gpt-4o`                 | Only models that support tool/function callings are supported.                                                                                                                                             |
 | `CHAT_USE_RESPONSES_API`         | Use the OpenAI Responses API for chat                                | `False`                  | Requires `CHAT_PROVIDER=openai`. Needed for OpenAI reasoning models (e.g. `gpt-5.6-sol`, `gpt-5.6-terra`) to combine active reasoning with tool calling. See [Reasoning Models](#reasoning-models-openai-responses-api). |
 | `REASONING_EFFORT`               | Default reasoning effort for reasoning models                        | None                     | Options: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. Only sent when set and only on the Responses API path; can be overridden per request via `reasoning_effort`. Not every model supports every value (GPT-5.6 does not support `minimal`). |
-| `OPENAI_RESPONSES_STORE`         | Store Responses API state with OpenAI                                | `True`                   | Responses API path only. `True` is the only supported value today — `False` (Zero Data Retention) is reserved for future work and currently fails startup when the Responses path is enabled. See the privacy note under [Reasoning Models](#reasoning-models-openai-responses-api).                                        |
+| `OPENAI_RESPONSES_STORE`         | Store Responses API state with OpenAI                                | `True`                   | Responses API path only. `True` is the only supported value today — `False` (required for Zero Data Retention) is reserved for future work and currently fails startup when the Responses path is enabled. See the privacy note under [Reasoning Models](#reasoning-models-openai-responses-api).                                        |
 | `EMBEDDING_MODEL`                | Model used for embeddings                                            | `text-embedding-3-small` | -  |
 | `EMBEDDING_DIMENSIONS`           | Dimensions for embedding vectors                                     | `1536`                   | Must match dimensions of selected embedding model. Dimensions above 2000 (e.g. `text-embedding-3-large` at 3072) are supported — see [Large Embedding Models](#large-embedding-models). Changing this on an existing deployment requires re-embedding. |
 | `EMBEDDING_CANDIDATE_MULTIPLIER` | Candidate over-fetch factor for the >2000-dimension retrieval path   | `10`                     | Candidates fetched per search = `RETRIEVAL_TOP_K` × this value, then reranked by exact full-precision cosine. Postgres backend only; no effect at ≤2000 dimensions.                                        |
@@ -92,9 +92,9 @@ request in the `/chat` payload.
 
 :::info Privacy
 The Responses API path sends `store=true`, meaning conversation state is retained in
-OpenAI's stored-responses workflow (30 days by default) to support reasoning
-continuity across tool calls. Zero Data Retention (`OPENAI_RESPONSES_STORE=false`) is
-not yet supported.
+OpenAI's stored-responses workflow for at least 30 days to support reasoning
+continuity across tool calls. Using `store=false`, as required for Zero Data
+Retention, is not yet supported.
 :::
 
 ### Large Embedding Models
@@ -115,10 +115,10 @@ database, see `PG_UPDATE_VECTOR_EXTENSION`). The Redis backend supports 3072
 dimensions without additional configuration.
 
 Note that PostgreSQL chooses the access path per query: for small and medium sources
-it typically serves the candidate stage with an exact scan of the filtered source
-(fast and perfectly accurate at that scale) and switches to the HNSW index only when
-a source grows large enough for it to win on cost — so `EMBEDDING_CANDIDATE_MULTIPLIER`
-and `HNSW_EF_SEARCH` only influence queries served by the index.
+it typically serves the candidate stage with a sequential scan and switches to the
+HNSW index only when a source grows large enough for it to win on cost.
+`EMBEDDING_CANDIDATE_MULTIPLIER` controls the number of candidates on both paths,
+while `HNSW_EF_SEARCH` only influences queries served by the index.
 
 Ragpi records a manifest for each document store (embedding provider, model,
 dimensions, and index configuration) and validates it at startup, failing fast with
