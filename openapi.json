@@ -3,7 +3,7 @@
   "info": {
     "title": "Ragpi",
     "summary": "An open-source AI assistant answering questions using your docs",
-    "version": "v0.4.x"
+    "version": "v0.5.x"
   },
   "paths": {
     "/healthcheck": {
@@ -1093,13 +1093,34 @@
           "model": {
             "type": "string",
             "title": "Model",
-            "default": "gpt-4o"
+            "default": "gpt-5.6-sol"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
           },
           "messages": {
             "items": {
               "$ref": "#/components/schemas/ChatMessage"
             },
             "type": "array",
+            "minItems": 1,
             "title": "Messages"
           }
         },
